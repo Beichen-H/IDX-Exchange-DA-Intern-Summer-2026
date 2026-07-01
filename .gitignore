@@ -1,0 +1,7 @@
+*.csv
+*.xlsx
+.venv/
+__pycache__/
+*.py[cod]
+sql/
+*.pdf
