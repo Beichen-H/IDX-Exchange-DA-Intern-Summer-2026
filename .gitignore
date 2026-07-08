@@ -1,5 +1,9 @@
 *.csv
 *.xlsx
+*.twb
+*.twbx
+*.twbr
+*.hyper
 .venv/
 __pycache__/
 *.py[cod]

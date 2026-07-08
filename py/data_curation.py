@@ -10,6 +10,11 @@ and writes new production-facing curated files:
 
     ../csv/listings_curated.csv
     ../csv/sold_curated.csv
+
+It then materializes Tableau-ready terminal datasets:
+
+    ../csv/crmls_unified_wide_table.csv
+    ../csv/crmls_monthly_market_metrics.csv
 """
 
 from __future__ import annotations
@@ -31,6 +36,10 @@ INPUT_OUTPUT_PAIRS = (
     (CSV_DIR / "listings.csv", CSV_DIR / "listings_curated.csv"),
     (CSV_DIR / "sold.csv", CSV_DIR / "sold_curated.csv"),
 )
+LISTINGS_CURATED_PATH = CSV_DIR / "listings_curated.csv"
+SOLD_CURATED_PATH = CSV_DIR / "sold_curated.csv"
+UNIFIED_WIDE_TABLE_PATH = CSV_DIR / "crmls_unified_wide_table.csv"
+MONTHLY_MARKET_METRICS_PATH = CSV_DIR / "crmls_monthly_market_metrics.csv"
 
 MISSING_THRESHOLD = 0.90
 
@@ -196,11 +205,150 @@ def process_dataset(input_path: Path, output_path: Path) -> dict[str, int]:
     }
 
 
+def build_unified_wide_table(listings: pd.DataFrame, sold: pd.DataFrame) -> pd.DataFrame:
+    """Left join curated listings to curated sold records by ListingKey."""
+    if "ListingKey" not in listings.columns:
+        raise ValueError("listings_curated.csv is missing ListingKey.")
+    if "ListingKey" not in sold.columns:
+        raise ValueError("sold_curated.csv is missing ListingKey.")
+
+    listings_working = listings.copy()
+    sold_working = sold.copy()
+    listings_working["ListingKey"] = listings_working["ListingKey"].astype(str).str.strip()
+    sold_working["ListingKey"] = sold_working["ListingKey"].astype(str).str.strip()
+    sold_working = sold_working.drop_duplicates(subset=["ListingKey"], keep="last")
+
+    return listings_working.merge(
+        sold_working,
+        how="left",
+        on="ListingKey",
+        suffixes=("", "_sold"),
+        validate="one_to_one",
+    )
+
+
+def _first_existing_column(frame: pd.DataFrame, candidates: Sequence[str]) -> str | None:
+    for column in candidates:
+        if column in frame.columns:
+            return column
+    return None
+
+
+def _numeric_series(frame: pd.DataFrame, candidates: Sequence[str]) -> pd.Series:
+    column = _first_existing_column(frame, candidates)
+    if column is None:
+        return pd.Series(pd.NA, index=frame.index, dtype="Float64")
+    return pd.to_numeric(frame[column], errors="coerce")
+
+
+def _datetime_series(frame: pd.DataFrame, candidates: Sequence[str]) -> pd.Series:
+    column = _first_existing_column(frame, candidates)
+    if column is None:
+        return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+    return pd.to_datetime(frame[column], errors="coerce")
+
+
+def build_monthly_market_metrics(wide_table: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate a Tableau-friendly monthly market snapshot."""
+    if "ListingKey" not in wide_table.columns:
+        raise ValueError("wide table is missing ListingKey.")
+
+    working = pd.DataFrame(index=wide_table.index)
+    listing_dates = _datetime_series(wide_table, ("ListingContractDate", "ListingContractDate_sold"))
+    close_dates = _datetime_series(wide_table, ("CloseDate_sold", "CloseDate"))
+
+    working["Month"] = listing_dates.dt.to_period("M").astype("string")
+    working["City"] = wide_table.get("City", pd.Series(pd.NA, index=wide_table.index))
+    working["PostalCode"] = wide_table.get("PostalCode", pd.Series(pd.NA, index=wide_table.index))
+    working["City"] = working["City"].fillna("Unknown").astype(str).str.strip().replace("", "Unknown")
+    working["PostalCode"] = (
+        working["PostalCode"].fillna("Unknown").astype(str).str.strip().replace("", "Unknown")
+    )
+    working["ListingKey"] = wide_table["ListingKey"]
+    working["OriginalListPrice"] = _numeric_series(
+        wide_table, ("OriginalListPrice", "OriginalListPrice_sold")
+    )
+    working["ClosePrice"] = _numeric_series(wide_table, ("ClosePrice_sold", "ClosePrice"))
+    working["SoldFlag"] = close_dates.notna().astype(int)
+    working["AbsorptionDays"] = (close_dates - listing_dates).dt.days
+    working.loc[close_dates.isna() | listing_dates.isna(), "AbsorptionDays"] = pd.NA
+
+    metrics = (
+        working.groupby(["Month", "City", "PostalCode"], dropna=False)
+        .agg(
+            CountOfListings=("ListingKey", "count"),
+            CountOfSold=("SoldFlag", "sum"),
+            MeanOriginalListPrice=("OriginalListPrice", "mean"),
+            MeanClosePrice=("ClosePrice", "mean"),
+            MeanAbsorptionDays=("AbsorptionDays", "mean"),
+        )
+        .reset_index()
+        .sort_values(["Month", "City", "PostalCode"], na_position="last")
+        .reset_index(drop=True)
+    )
+
+    return metrics[
+        [
+            "Month",
+            "City",
+            "PostalCode",
+            "CountOfListings",
+            "CountOfSold",
+            "MeanOriginalListPrice",
+            "MeanClosePrice",
+            "MeanAbsorptionDays",
+        ]
+    ]
+
+
+def process_tableau_outputs(
+    *,
+    listings_path: Path = LISTINGS_CURATED_PATH,
+    sold_path: Path = SOLD_CURATED_PATH,
+    wide_output_path: Path = UNIFIED_WIDE_TABLE_PATH,
+    metrics_output_path: Path = MONTHLY_MARKET_METRICS_PATH,
+) -> dict[str, int]:
+    """Materialize Tableau terminal datasets from curated listings and sold CSVs."""
+    listings_path = Path(listings_path)
+    sold_path = Path(sold_path)
+    if not listings_path.exists():
+        raise FileNotFoundError(f"Curated listings CSV not found: {listings_path}")
+    if not sold_path.exists():
+        raise FileNotFoundError(f"Curated sold CSV not found: {sold_path}")
+
+    print(f"Reading curated listings: {listings_path}", flush=True)
+    listings = pd.read_csv(listings_path, low_memory=False)
+    print(f"Reading curated sold: {sold_path}", flush=True)
+    sold = pd.read_csv(sold_path, low_memory=False)
+
+    wide_table = build_unified_wide_table(listings, sold)
+    atomic_write_csv(wide_table, wide_output_path)
+    print(
+        f"Wrote {wide_output_path}: {len(wide_table)} rows, {len(wide_table.columns)} columns.",
+        flush=True,
+    )
+
+    metrics = build_monthly_market_metrics(wide_table)
+    atomic_write_csv(metrics, metrics_output_path)
+    print(
+        f"Wrote {metrics_output_path}: {len(metrics)} rows, {len(metrics.columns)} columns.",
+        flush=True,
+    )
+
+    return {
+        "wide_rows": len(wide_table),
+        "wide_columns": len(wide_table.columns),
+        "metrics_rows": len(metrics),
+        "metrics_columns": len(metrics.columns),
+    }
+
+
 def main() -> int:
     print("Starting CRMLS data curation.", flush=True)
     try:
         for input_path, output_path in INPUT_OUTPUT_PAIRS:
             process_dataset(input_path, output_path)
+        process_tableau_outputs()
     except Exception as exc:
         print(f"Data curation failed: {exc}", flush=True)
         return 1
