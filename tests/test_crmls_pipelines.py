@@ -1,5 +1,6 @@
 import ast
 import importlib.util
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ PIPELINES = {
 }
 INITIAL_MERGE = ROOT / "py" / "initial_merge.py"
 DATA_CURATION = ROOT / "py" / "data_curation.py"
+SOLD_NOTEBOOK = ROOT / "sold_pipeline.ipynb"
 
 
 def load_pipeline(name):
@@ -341,6 +343,56 @@ class InitialMergeTests(unittest.TestCase):
 
 
 class DataCurationTests(unittest.TestCase):
+    def test_fred_weekly_rates_are_resampled_to_monthly_means(self):
+        data_curation = load_data_curation()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fred_csv = Path(temp_dir) / "fred.csv"
+            pd.DataFrame(
+                {
+                    "observation_date": [
+                        "2026-01-01",
+                        "2026-01-08",
+                        "2026-02-05",
+                        "2026-02-12",
+                    ],
+                    "MORTGAGE30US": [6.0, 6.2, ".", 6.4],
+                }
+            ).to_csv(fred_csv, index=False)
+
+            monthly = data_curation.fetch_monthly_mortgage_rates(fred_csv)
+
+        self.assertEqual(list(monthly.columns), ["year_month", "rate_30yr_fixed"])
+        self.assertEqual(list(monthly["year_month"]), ["2026-01", "2026-02"])
+        self.assertAlmostEqual(monthly.loc[0, "rate_30yr_fixed"], 6.1)
+        self.assertAlmostEqual(monthly.loc[1, "rate_30yr_fixed"], 6.4)
+
+    def test_mortgage_rates_left_join_on_date_derived_year_month(self):
+        data_curation = load_data_curation()
+        listings = pd.DataFrame(
+            {
+                "ListingKey": ["a", "b", "bad-date"],
+                "ListingContractDate": ["2026-01-10", "2026-02-15", "invalid"],
+            }
+        )
+        monthly_rates = pd.DataFrame(
+            {
+                "year_month": ["2026-01", "2026-02"],
+                "rate_30yr_fixed": [6.1, 6.4],
+            }
+        )
+
+        enriched = data_curation.enrich_with_mortgage_rates(
+            listings,
+            date_column="ListingContractDate",
+            monthly_rates=monthly_rates,
+        )
+
+        self.assertEqual(list(enriched["year_month"][:2]), ["2026-01", "2026-02"])
+        self.assertEqual(list(enriched["rate_30yr_fixed"][:2]), [6.1, 6.4])
+        self.assertTrue(pd.isna(enriched.loc[2, "year_month"]))
+        self.assertTrue(pd.isna(enriched.loc[2, "rate_30yr_fixed"]))
+
     def test_curate_dataframe_drops_sparse_and_text_columns_but_keeps_required_fields(self):
         data_curation = load_data_curation()
         frame = pd.DataFrame(
@@ -401,7 +453,15 @@ class DataCurationTests(unittest.TestCase):
             source.to_csv(input_path, index=False)
             original_bytes = input_path.read_bytes()
 
-            stats = data_curation.process_dataset(input_path, output_path)
+            monthly_rates = pd.DataFrame(
+                {"year_month": ["2026-05"], "rate_30yr_fixed": [6.25]}
+            )
+            stats = data_curation.process_dataset(
+                input_path,
+                output_path,
+                date_column="ListingContractDate",
+                monthly_rates=monthly_rates,
+            )
 
             self.assertEqual(input_path.read_bytes(), original_bytes)
             self.assertTrue(output_path.exists())
@@ -409,6 +469,8 @@ class DataCurationTests(unittest.TestCase):
             self.assertEqual(stats["output_rows"], 2)
             self.assertNotIn("UnparsedAddress", curated.columns)
             self.assertIn("ListingKey", curated.columns)
+            self.assertEqual(list(curated["year_month"]), ["2026-05", "2026-05"])
+            self.assertEqual(list(curated["rate_30yr_fixed"]), [6.25, 6.25])
 
     def test_unified_wide_table_left_joins_sold_with_conflict_suffixes(self):
         data_curation = load_data_curation()
@@ -450,6 +512,7 @@ class DataCurationTests(unittest.TestCase):
                 "PostalCode": ["92602", "92602", "92780"],
                 "OriginalListPrice": [100.0, 300.0, 500.0],
                 "ClosePrice_sold": [110.0, None, 520.0],
+                "rate_30yr_fixed": [6.25, 6.25, 6.5],
             }
         )
 
@@ -461,6 +524,7 @@ class DataCurationTests(unittest.TestCase):
                 "Month",
                 "City",
                 "PostalCode",
+                "rate_30yr_fixed",
                 "CountOfListings",
                 "CountOfSold",
                 "MeanOriginalListPrice",
@@ -478,6 +542,7 @@ class DataCurationTests(unittest.TestCase):
         self.assertEqual(irvine["MeanOriginalListPrice"], 200.0)
         self.assertEqual(irvine["MeanClosePrice"], 110.0)
         self.assertEqual(irvine["MeanAbsorptionDays"], 9.0)
+        self.assertEqual(irvine["rate_30yr_fixed"], 6.25)
 
     def test_tableau_outputs_are_written_without_overwriting_curated_inputs(self):
         data_curation = load_data_curation()
@@ -521,6 +586,41 @@ class DataCurationTests(unittest.TestCase):
             self.assertTrue(metrics_path.exists())
             self.assertEqual(stats["wide_rows"], 2)
             self.assertEqual(stats["metrics_rows"], 1)
+
+
+class SoldNotebookTests(unittest.TestCase):
+    def test_advanced_eda_contains_sampling_vif_interactions_and_clustering(self):
+        notebook = json.loads(SOLD_NOTEBOOK.read_text(encoding="utf-8"))
+        code = "\n".join(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["cell_type"] == "code"
+        )
+
+        required_snippets = (
+            ".sample(n=10000, random_state=42)",
+            "sns.pairplot",
+            "variance_inflation_factor",
+            "LivingArea_x_BedroomsTotal",
+            "OriginalListPrice_x_rate_30yr_fixed",
+            "sm.OLS",
+            "StandardScaler",
+            "KMeans(n_clusters=4",
+            "sns.scatterplot",
+        )
+        for snippet in required_snippets:
+            with self.subTest(snippet=snippet):
+                self.assertIn(snippet, code)
+
+    def test_notebook_code_cells_are_clean_and_unexecuted(self):
+        notebook = json.loads(SOLD_NOTEBOOK.read_text(encoding="utf-8"))
+        code_cells = [
+            cell for cell in notebook["cells"] if cell["cell_type"] == "code"
+        ]
+        self.assertGreaterEqual(len(code_cells), 8)
+        for cell in code_cells:
+            self.assertIsNone(cell["execution_count"])
+            self.assertEqual(cell["outputs"], [])
 
 
 if __name__ == "__main__":

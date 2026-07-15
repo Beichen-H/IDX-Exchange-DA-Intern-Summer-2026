@@ -22,10 +22,12 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from io import StringIO
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import pandas as pd
+import requests
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -40,6 +42,12 @@ LISTINGS_CURATED_PATH = CSV_DIR / "listings_curated.csv"
 SOLD_CURATED_PATH = CSV_DIR / "sold_curated.csv"
 UNIFIED_WIDE_TABLE_PATH = CSV_DIR / "crmls_unified_wide_table.csv"
 MONTHLY_MARKET_METRICS_PATH = CSV_DIR / "crmls_monthly_market_metrics.csv"
+FRED_MORTGAGE_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=MORTGAGE30US"
+YEAR_MONTH_COLUMN = "year_month"
+MORTGAGE_RATE_COLUMN = "rate_30yr_fixed"
+FRED_DATE_COLUMN = "observation_date"
+FRED_RATE_COLUMN = "MORTGAGE30US"
+FRED_TIMEOUT_SECONDS = 30
 
 MISSING_THRESHOLD = 0.90
 
@@ -88,6 +96,8 @@ DASHBOARD_FIELDS = (
     "AssociationFee",
     "ListOfficeName",
     "BuyerOfficeName",
+    YEAR_MONTH_COLUMN,
+    MORTGAGE_RATE_COLUMN,
 )
 
 
@@ -173,7 +183,100 @@ def print_sparse_columns(dropped_columns: Mapping[str, float], label: str) -> No
         print(f"  - {column}: {rate:.2%}", flush=True)
 
 
-def process_dataset(input_path: Path, output_path: Path) -> dict[str, int]:
+def fetch_monthly_mortgage_rates(
+    source: str | Path = FRED_MORTGAGE_URL,
+    *,
+    timeout: int = FRED_TIMEOUT_SECONDS,
+    session: requests.Session | None = None,
+) -> pd.DataFrame:
+    """Fetch FRED weekly mortgage rates and resample them to monthly means."""
+    source_text = str(source)
+    if source_text.lower().startswith(("http://", "https://")):
+        client = session or requests.Session()
+        response = client.get(source_text, timeout=timeout)
+        response.raise_for_status()
+        weekly = pd.read_csv(StringIO(response.text))
+    else:
+        weekly = pd.read_csv(source)
+
+    required_columns = {FRED_DATE_COLUMN, FRED_RATE_COLUMN}
+    missing_columns = required_columns.difference(weekly.columns)
+    if missing_columns:
+        raise ValueError(
+            "FRED mortgage CSV is missing required columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    weekly[FRED_DATE_COLUMN] = pd.to_datetime(weekly[FRED_DATE_COLUMN], errors="coerce")
+    weekly[FRED_RATE_COLUMN] = pd.to_numeric(weekly[FRED_RATE_COLUMN], errors="coerce")
+    weekly = weekly.dropna(subset=[FRED_DATE_COLUMN]).sort_values(FRED_DATE_COLUMN)
+    if weekly.empty:
+        raise ValueError("FRED mortgage CSV contains no valid observation dates.")
+
+    monthly = (
+        weekly.set_index(FRED_DATE_COLUMN)[FRED_RATE_COLUMN]
+        .resample("MS")
+        .mean()
+        .dropna()
+        .rename(MORTGAGE_RATE_COLUMN)
+        .reset_index()
+    )
+    monthly[YEAR_MONTH_COLUMN] = (
+        monthly[FRED_DATE_COLUMN].dt.to_period("M").astype("string")
+    )
+    return monthly[[YEAR_MONTH_COLUMN, MORTGAGE_RATE_COLUMN]]
+
+
+def enrich_with_mortgage_rates(
+    frame: pd.DataFrame,
+    *,
+    date_column: str,
+    monthly_rates: pd.DataFrame,
+) -> pd.DataFrame:
+    """Left join monthly mortgage rates using a YYYY-MM key derived from a date column."""
+    if date_column not in frame.columns:
+        raise ValueError(f"Dataset is missing date column: {date_column}")
+    required_rate_columns = {YEAR_MONTH_COLUMN, MORTGAGE_RATE_COLUMN}
+    missing_rate_columns = required_rate_columns.difference(monthly_rates.columns)
+    if missing_rate_columns:
+        raise ValueError(
+            "Monthly mortgage rates are missing columns: "
+            + ", ".join(sorted(missing_rate_columns))
+        )
+
+    working = frame.drop(
+        columns=[YEAR_MONTH_COLUMN, MORTGAGE_RATE_COLUMN], errors="ignore"
+    ).copy()
+    parsed_dates = pd.to_datetime(working[date_column], errors="coerce")
+    working[YEAR_MONTH_COLUMN] = parsed_dates.dt.to_period("M").astype("string")
+
+    rates = monthly_rates[[YEAR_MONTH_COLUMN, MORTGAGE_RATE_COLUMN]].copy()
+    rates[YEAR_MONTH_COLUMN] = rates[YEAR_MONTH_COLUMN].astype("string")
+    rates[MORTGAGE_RATE_COLUMN] = pd.to_numeric(
+        rates[MORTGAGE_RATE_COLUMN], errors="coerce"
+    )
+    rates = rates.drop_duplicates(subset=[YEAR_MONTH_COLUMN], keep="last")
+    return working.merge(rates, how="left", on=YEAR_MONTH_COLUMN, validate="many_to_one")
+
+
+def print_rate_null_check(frame: pd.DataFrame, label: str) -> int:
+    """Print and return the number of unmatched mortgage-rate values."""
+    null_count = int(frame[MORTGAGE_RATE_COLUMN].isna().sum())
+    print(
+        f"{label}: null {MORTGAGE_RATE_COLUMN} values = {null_count} "
+        f"of {len(frame)} rows.",
+        flush=True,
+    )
+    return null_count
+
+
+def process_dataset(
+    input_path: Path,
+    output_path: Path,
+    *,
+    date_column: str | None = None,
+    monthly_rates: pd.DataFrame | None = None,
+) -> dict[str, int]:
     """Curate one merged ledger into one lightweight output CSV."""
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -187,6 +290,15 @@ def process_dataset(input_path: Path, output_path: Path) -> dict[str, int]:
 
     curated, dropped_columns = curate_dataframe(frame)
     print_sparse_columns(dropped_columns, input_path.name)
+    if monthly_rates is not None:
+        if date_column is None:
+            raise ValueError("date_column is required when monthly_rates is provided.")
+        curated = enrich_with_mortgage_rates(
+            curated,
+            date_column=date_column,
+            monthly_rates=monthly_rates,
+        )
+        print_rate_null_check(curated, output_path.name)
 
     atomic_write_csv(curated, output_path)
     print(
@@ -218,13 +330,20 @@ def build_unified_wide_table(listings: pd.DataFrame, sold: pd.DataFrame) -> pd.D
     sold_working["ListingKey"] = sold_working["ListingKey"].astype(str).str.strip()
     sold_working = sold_working.drop_duplicates(subset=["ListingKey"], keep="last")
 
-    return listings_working.merge(
+    wide_table = listings_working.merge(
         sold_working,
         how="left",
         on="ListingKey",
         suffixes=("", "_sold"),
         validate="one_to_one",
     )
+    if MORTGAGE_RATE_COLUMN not in wide_table.columns:
+        sold_rate_column = f"{MORTGAGE_RATE_COLUMN}_sold"
+        if sold_rate_column in wide_table.columns:
+            wide_table[MORTGAGE_RATE_COLUMN] = wide_table[sold_rate_column]
+        else:
+            wide_table[MORTGAGE_RATE_COLUMN] = pd.NA
+    return wide_table
 
 
 def _first_existing_column(frame: pd.DataFrame, candidates: Sequence[str]) -> str | None:
@@ -269,6 +388,9 @@ def build_monthly_market_metrics(wide_table: pd.DataFrame) -> pd.DataFrame:
         wide_table, ("OriginalListPrice", "OriginalListPrice_sold")
     )
     working["ClosePrice"] = _numeric_series(wide_table, ("ClosePrice_sold", "ClosePrice"))
+    working[MORTGAGE_RATE_COLUMN] = _numeric_series(
+        wide_table, (MORTGAGE_RATE_COLUMN, f"{MORTGAGE_RATE_COLUMN}_sold")
+    )
     working["SoldFlag"] = close_dates.notna().astype(int)
     working["AbsorptionDays"] = (close_dates - listing_dates).dt.days
     working.loc[close_dates.isna() | listing_dates.isna(), "AbsorptionDays"] = pd.NA
@@ -276,6 +398,7 @@ def build_monthly_market_metrics(wide_table: pd.DataFrame) -> pd.DataFrame:
     metrics = (
         working.groupby(["Month", "City", "PostalCode"], dropna=False)
         .agg(
+            rate_30yr_fixed=(MORTGAGE_RATE_COLUMN, "mean"),
             CountOfListings=("ListingKey", "count"),
             CountOfSold=("SoldFlag", "sum"),
             MeanOriginalListPrice=("OriginalListPrice", "mean"),
@@ -292,6 +415,7 @@ def build_monthly_market_metrics(wide_table: pd.DataFrame) -> pd.DataFrame:
             "Month",
             "City",
             "PostalCode",
+            MORTGAGE_RATE_COLUMN,
             "CountOfListings",
             "CountOfSold",
             "MeanOriginalListPrice",
@@ -346,8 +470,20 @@ def process_tableau_outputs(
 def main() -> int:
     print("Starting CRMLS data curation.", flush=True)
     try:
+        print(f"Fetching FRED mortgage rates: {FRED_MORTGAGE_URL}", flush=True)
+        monthly_rates = fetch_monthly_mortgage_rates()
+        print(f"Loaded {len(monthly_rates)} monthly mortgage-rate observations.", flush=True)
+        date_columns = {
+            LISTINGS_CURATED_PATH: "ListingContractDate",
+            SOLD_CURATED_PATH: "CloseDate",
+        }
         for input_path, output_path in INPUT_OUTPUT_PAIRS:
-            process_dataset(input_path, output_path)
+            process_dataset(
+                input_path,
+                output_path,
+                date_column=date_columns[output_path],
+                monthly_rates=monthly_rates,
+            )
         process_tableau_outputs()
     except Exception as exc:
         print(f"Data curation failed: {exc}", flush=True)
