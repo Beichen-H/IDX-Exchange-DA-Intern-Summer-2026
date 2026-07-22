@@ -51,6 +51,34 @@ FRED_TIMEOUT_SECONDS = 30
 
 MISSING_THRESHOLD = 0.90
 
+DATE_CLEANING_COLUMNS = (
+    "CloseDate",
+    "PurchaseContractDate",
+    "ListingContractDate",
+    "ContractStatusChangeDate",
+)
+NUMERIC_CLEANING_COLUMNS = (
+    "ClosePrice",
+    "OriginalListPrice",
+    "ListPrice",
+    "LivingArea",
+    "DaysOnMarket",
+    "BedroomsTotal",
+    "BathroomsTotalInteger",
+    "Latitude",
+    "Longitude",
+)
+DATA_QUALITY_FLAG_COLUMNS = (
+    "listing_after_close_flag",
+    "purchase_after_close_flag",
+    "negative_timeline_flag",
+    "invalid_coordinates_flag",
+)
+
+# Approximate California bounding envelope used only for data-quality flagging.
+CALIFORNIA_LATITUDE_RANGE = (32.0, 42.0)
+CALIFORNIA_LONGITUDE_RANGE = (-125.0, -114.0)
+
 REQUIRED_FIELDS = (
     "ListingKey",
     "ListingContractDate",
@@ -69,6 +97,8 @@ REQUIRED_FIELDS = (
 DASHBOARD_FIELDS = (
     "ListingKey",
     "ListingContractDate",
+    "PurchaseContractDate",
+    "ContractStatusChangeDate",
     "CloseDate",
     "OriginalListPrice",
     "ClosePrice",
@@ -98,6 +128,7 @@ DASHBOARD_FIELDS = (
     "BuyerOfficeName",
     YEAR_MONTH_COLUMN,
     MORTGAGE_RATE_COLUMN,
+    *DATA_QUALITY_FLAG_COLUMNS,
 )
 
 
@@ -247,8 +278,10 @@ def enrich_with_mortgage_rates(
     working = frame.drop(
         columns=[YEAR_MONTH_COLUMN, MORTGAGE_RATE_COLUMN], errors="ignore"
     ).copy()
-    parsed_dates = pd.to_datetime(working[date_column], errors="coerce")
-    working[YEAR_MONTH_COLUMN] = parsed_dates.dt.to_period("M").astype("string")
+    parsed_dates = pd.to_datetime(working[date_column], errors="coerce", utc=True)
+    working[YEAR_MONTH_COLUMN] = (
+        parsed_dates.dt.tz_convert(None).dt.to_period("M").astype("string")
+    )
 
     rates = monthly_rates[[YEAR_MONTH_COLUMN, MORTGAGE_RATE_COLUMN]].copy()
     rates[YEAR_MONTH_COLUMN] = rates[YEAR_MONTH_COLUMN].astype("string")
@@ -268,6 +301,75 @@ def print_rate_null_check(frame: pd.DataFrame, label: str) -> int:
         flush=True,
     )
     return null_count
+
+
+def _datetime_column(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns, UTC]")
+    return pd.to_datetime(frame[column], errors="coerce", utc=True)
+
+
+def _numeric_column(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(float("nan"), index=frame.index, dtype="float64")
+    return pd.to_numeric(frame[column], errors="coerce")
+
+
+def add_data_quality_flags(frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalize cleaning fields and add Weeks 4-5 timeline/geography flags."""
+    working = frame.copy()
+
+    for column in DATE_CLEANING_COLUMNS:
+        if column in working.columns:
+            working[column] = _datetime_column(working, column)
+    for column in NUMERIC_CLEANING_COLUMNS:
+        if column in working.columns:
+            working[column] = _numeric_column(working, column)
+
+    listing_date = _datetime_column(working, "ListingContractDate")
+    purchase_date = _datetime_column(working, "PurchaseContractDate")
+    close_date = _datetime_column(working, "CloseDate")
+    days_on_market = _numeric_column(working, "DaysOnMarket")
+
+    listing_after_close = (
+        listing_date.notna() & close_date.notna() & listing_date.gt(close_date)
+    )
+    purchase_after_close = (
+        purchase_date.notna() & close_date.notna() & purchase_date.gt(close_date)
+    )
+    listing_after_purchase = (
+        listing_date.notna() & purchase_date.notna() & listing_date.gt(purchase_date)
+    )
+
+    latitude = _numeric_column(working, "Latitude")
+    longitude = _numeric_column(working, "Longitude")
+    missing_coordinates = latitude.isna() | longitude.isna()
+    zero_coordinates = latitude.eq(0) | longitude.eq(0)
+    positive_california_longitude = longitude.gt(0)
+    outside_california_envelope = (
+        latitude.notna()
+        & longitude.notna()
+        & (
+            ~latitude.between(*CALIFORNIA_LATITUDE_RANGE)
+            | ~longitude.between(*CALIFORNIA_LONGITUDE_RANGE)
+        )
+    )
+
+    working["listing_after_close_flag"] = listing_after_close.astype(bool)
+    working["purchase_after_close_flag"] = purchase_after_close.astype(bool)
+    working["negative_timeline_flag"] = (
+        days_on_market.lt(0)
+        | listing_after_close
+        | purchase_after_close
+        | listing_after_purchase
+    ).astype(bool)
+    working["invalid_coordinates_flag"] = (
+        missing_coordinates
+        | zero_coordinates
+        | positive_california_longitude
+        | outside_california_envelope
+    ).astype(bool)
+    return working
 
 
 def process_dataset(
@@ -290,6 +392,7 @@ def process_dataset(
 
     curated, dropped_columns = curate_dataframe(frame)
     print_sparse_columns(dropped_columns, input_path.name)
+    curated = add_data_quality_flags(curated)
     if monthly_rates is not None:
         if date_column is None:
             raise ValueError("date_column is required when monthly_rates is provided.")
@@ -363,8 +466,8 @@ def _numeric_series(frame: pd.DataFrame, candidates: Sequence[str]) -> pd.Series
 def _datetime_series(frame: pd.DataFrame, candidates: Sequence[str]) -> pd.Series:
     column = _first_existing_column(frame, candidates)
     if column is None:
-        return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
-    return pd.to_datetime(frame[column], errors="coerce")
+        return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns, UTC]")
+    return pd.to_datetime(frame[column], errors="coerce", utc=True)
 
 
 def build_monthly_market_metrics(wide_table: pd.DataFrame) -> pd.DataFrame:
@@ -376,7 +479,9 @@ def build_monthly_market_metrics(wide_table: pd.DataFrame) -> pd.DataFrame:
     listing_dates = _datetime_series(wide_table, ("ListingContractDate", "ListingContractDate_sold"))
     close_dates = _datetime_series(wide_table, ("CloseDate_sold", "CloseDate"))
 
-    working["Month"] = listing_dates.dt.to_period("M").astype("string")
+    working["Month"] = (
+        listing_dates.dt.tz_convert(None).dt.to_period("M").astype("string")
+    )
     working["City"] = wide_table.get("City", pd.Series(pd.NA, index=wide_table.index))
     working["PostalCode"] = wide_table.get("PostalCode", pd.Series(pd.NA, index=wide_table.index))
     working["City"] = working["City"].fillna("Unknown").astype(str).str.strip().replace("", "Unknown")

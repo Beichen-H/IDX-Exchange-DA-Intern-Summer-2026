@@ -19,6 +19,7 @@ PIPELINES = {
 INITIAL_MERGE = ROOT / "py" / "initial_merge.py"
 DATA_CURATION = ROOT / "py" / "data_curation.py"
 SOLD_NOTEBOOK = ROOT / "sold_pipeline.ipynb"
+WEEK45_NOTEBOOK = ROOT / "week4_5_Data_Cleaning_and_Preparation.ipynb"
 
 
 def load_pipeline(name):
@@ -343,6 +344,44 @@ class InitialMergeTests(unittest.TestCase):
 
 
 class DataCurationTests(unittest.TestCase):
+    def test_data_quality_flags_cover_date_timeline_and_california_coordinates(self):
+        data_curation = load_data_curation()
+        frame = pd.DataFrame(
+            {
+                "ListingContractDate": [
+                    "2026-01-01", "2026-02-10", "2026-01-01",
+                    "2026-01-01", "2026-01-01", "2026-01-01",
+                    "2026-01-01", "2026-01-01",
+                ],
+                "PurchaseContractDate": [
+                    "2026-01-10", "2026-02-05", "2026-02-20",
+                    "2026-01-10", "2026-01-10", "2026-01-10",
+                    "2026-01-10", "2026-01-10",
+                ],
+                "CloseDate": [
+                    "2026-01-20", "2026-02-06", "2026-02-10",
+                    "2026-01-20", "2026-01-20", "2026-01-20",
+                    "2026-01-20", "2026-01-20",
+                ],
+                "ContractStatusChangeDate": ["2026-01-20"] * 8,
+                "DaysOnMarket": [10, 5, 5, -1, 5, 5, 5, 5],
+                "Latitude": [34.0, 34.0, 34.0, 34.0, None, 50.0, 0.0, 34.0],
+                "Longitude": [-118.0, -118.0, -118.0, -118.0, -118.0, -120.0, -118.0, 118.0],
+            }
+        )
+
+        flagged = data_curation.add_data_quality_flags(frame)
+
+        self.assertFalse(flagged.loc[0, "negative_timeline_flag"])
+        self.assertTrue(flagged.loc[1, "listing_after_close_flag"])
+        self.assertTrue(flagged.loc[2, "purchase_after_close_flag"])
+        self.assertTrue(flagged.loc[3, "negative_timeline_flag"])
+        self.assertTrue(flagged.loc[4, "invalid_coordinates_flag"])
+        self.assertTrue(flagged.loc[5, "invalid_coordinates_flag"])
+        self.assertTrue(flagged.loc[6, "invalid_coordinates_flag"])
+        self.assertTrue(flagged.loc[7, "invalid_coordinates_flag"])
+        self.assertTrue(str(flagged["CloseDate"].dtype).startswith("datetime64"))
+
     def test_fred_weekly_rates_are_resampled_to_monthly_means(self):
         data_curation = load_data_curation()
 
@@ -471,6 +510,8 @@ class DataCurationTests(unittest.TestCase):
             self.assertIn("ListingKey", curated.columns)
             self.assertEqual(list(curated["year_month"]), ["2026-05", "2026-05"])
             self.assertEqual(list(curated["rate_30yr_fixed"]), [6.25, 6.25])
+            for flag in data_curation.DATA_QUALITY_FLAG_COLUMNS:
+                self.assertIn(flag, curated.columns)
 
     def test_unified_wide_table_left_joins_sold_with_conflict_suffixes(self):
         data_curation = load_data_curation()
@@ -618,6 +659,46 @@ class SoldNotebookTests(unittest.TestCase):
             cell for cell in notebook["cells"] if cell["cell_type"] == "code"
         ]
         self.assertGreaterEqual(len(code_cells), 8)
+        for cell in code_cells:
+            self.assertIsNone(cell["execution_count"])
+            self.assertEqual(cell["outputs"], [])
+
+
+class Week45NotebookTests(unittest.TestCase):
+    def test_notebook_contains_required_cleaning_flags_and_reports(self):
+        notebook = json.loads(WEEK45_NOTEBOOK.read_text(encoding="utf-8"))
+        code = "\n".join(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["cell_type"] == "code"
+        )
+        markdown = "\n".join(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["cell_type"] == "markdown"
+        )
+
+        for snippet in (
+            "csv/listings.csv",
+            "csv/sold.csv",
+            "listing_after_close_flag",
+            "purchase_after_close_flag",
+            "negative_timeline_flag",
+            "invalid_coordinates_flag",
+            "ContractStatusChangeDate",
+            "Longitude > 0",
+        ):
+            with self.subTest(snippet=snippet):
+                self.assertIn(snippet, code)
+        self.assertIn("Flag", markdown)
+        self.assertIn("before", markdown.lower())
+        self.assertIn("raw", markdown.lower())
+
+    def test_notebook_is_valid_and_has_clean_unexecuted_code_cells(self):
+        notebook = json.loads(WEEK45_NOTEBOOK.read_text(encoding="utf-8"))
+        self.assertEqual(notebook["nbformat"], 4)
+        code_cells = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
+        self.assertGreaterEqual(len(code_cells), 6)
         for cell in code_cells:
             self.assertIsNone(cell["execution_count"])
             self.assertEqual(cell["outputs"], [])
