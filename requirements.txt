@@ -5,3 +5,4 @@ seaborn>=0.13
 ipykernel>=6.29
 statsmodels>=0.14
 scikit-learn>=1.4
+tableauhyperapi>=0.0.26225
