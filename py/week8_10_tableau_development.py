@@ -1080,6 +1080,175 @@ def _add_dashboard(
     )
 
 
+def _add_overview_dashboard(
+    dashboards: ET.Element,
+    dashboard_name: str,
+    worksheet_names: Sequence[str],
+    datasource_name: str,
+    filter_fields: Sequence[str],
+) -> None:
+    """Create one tiled dashboard containing every supplied worksheet.
+
+    Tableau stores dashboard positions on a normalized 100,000 by 100,000
+    canvas. The overview pairs worksheets inside horizontal rows and reserves
+    a fixed right rail for filter cards. Detailed single-sheet dashboards are
+    retained for drill-down analysis.
+    """
+
+    if not worksheet_names:
+        raise ValueError("An overview dashboard requires at least one worksheet")
+
+    dashboard = ET.SubElement(
+        dashboards,
+        "dashboard",
+        {"name": dashboard_name},
+    )
+    ET.SubElement(dashboard, "style")
+    ET.SubElement(
+        dashboard,
+        "size",
+        {
+            "maxheight": "1100",
+            "maxwidth": "1600",
+            "minheight": "720",
+            "minwidth": "1100",
+        },
+    )
+    zones = ET.SubElement(dashboard, "zones")
+    root_zone = ET.SubElement(
+        zones,
+        "zone",
+        {
+            "h": "100000",
+            "id": "100",
+            "type-v2": "layout-basic",
+            "w": "100000",
+            "x": "0",
+            "y": "0",
+        },
+    )
+    outer_flow = ET.SubElement(
+        root_zone,
+        "zone",
+        {
+            "h": "97154",
+            "id": "101",
+            "param": "horz",
+            "type-v2": "layout-flow",
+            "w": "97538",
+            "x": "1231",
+            "y": "1423",
+        },
+    )
+    content_width = 78000
+    content_flow = ET.SubElement(
+        outer_flow,
+        "zone",
+        {
+            "h": "97154",
+            "id": "102",
+            "param": "vert",
+            "type-v2": "layout-flow",
+            "w": str(content_width),
+            "x": "1231",
+            "y": "1423",
+        },
+    )
+
+    row_count = (len(worksheet_names) + 1) // 2
+    row_height = 97154 // row_count
+    for row_index in range(row_count):
+        row_y = 1423 + row_index * row_height
+        row_zone = ET.SubElement(
+            content_flow,
+            "zone",
+            {
+                "h": str(row_height),
+                "id": str(110 + row_index),
+                "param": "horz",
+                "type-v2": "layout-flow",
+                "w": str(content_width),
+                "x": "1231",
+                "y": str(row_y),
+            },
+        )
+        names_in_row = worksheet_names[row_index * 2 : row_index * 2 + 2]
+        cell_width = content_width // len(names_in_row)
+        for column_index, worksheet_name in enumerate(names_in_row):
+            sheet_zone = ET.SubElement(
+                row_zone,
+                "zone",
+                {
+                    "h": str(row_height),
+                    "id": str(200 + row_index * 2 + column_index),
+                    "name": worksheet_name,
+                    "w": str(cell_width),
+                    "x": str(1231 + column_index * cell_width),
+                    "y": str(row_y),
+                },
+            )
+            _add_zone_style(sheet_zone, margin="6")
+
+    filter_x = 1231 + content_width
+    filter_width = 19538
+    filter_flow = ET.SubElement(
+        outer_flow,
+        "zone",
+        {
+            "fixed-size": "285",
+            "h": "97154",
+            "id": "103",
+            "is-fixed": "true",
+            "param": "vert",
+            "type-v2": "layout-flow",
+            "w": str(filter_width),
+            "x": str(filter_x),
+            "y": "1423",
+        },
+    )
+    primary_worksheet = worksheet_names[0]
+    if "Month" in filter_fields:
+        primary_worksheet = next(
+            (
+                name
+                for name in worksheet_names
+                if "Heat Map" in name
+            ),
+            primary_worksheet,
+        )
+    filter_height = max(10500, 90000 // max(1, len(filter_fields)))
+    for index, field in enumerate(filter_fields):
+        filter_aggregation = "month" if field == "Month" else "none"
+        filter_zone = ET.SubElement(
+            filter_flow,
+            "zone",
+            {
+                "h": str(filter_height),
+                "id": str(300 + index),
+                "mode": "checkdropdown",
+                "name": primary_worksheet,
+                "param": _field_token(
+                    datasource_name,
+                    field,
+                    filter_aggregation,
+                ),
+                "type-v2": "filter",
+                "values": "relevant",
+                "w": str(filter_width),
+                "x": str(filter_x),
+                "y": str(1423 + index * filter_height),
+            },
+        )
+        _add_zone_style(filter_zone, margin="6")
+
+    _add_zone_style(root_zone, margin="8")
+    ET.SubElement(
+        dashboard,
+        "simple-id",
+        {"uuid": "{" + str(uuid.uuid4()).upper() + "}"},
+    )
+
+
 def _add_zone_style(zone: ET.Element, margin: str) -> None:
     style = ET.SubElement(zone, "zone-style")
     ET.SubElement(style, "format", {"attr": "border-color", "value": "#000000"})
@@ -1146,6 +1315,18 @@ def build_workbook_xml(
             frame,
         )
     dashboards = ET.SubElement(root, "dashboards")
+    overview_name = f"{workbook_title} Dashboard"
+    overview_filters = list(FILTER_FIELDS)
+    if competitive:
+        overview_filters.insert(0, "Month")
+    worksheet_names = [f"WS - {spec.name}" for spec in sheets]
+    _add_overview_dashboard(
+        dashboards,
+        overview_name,
+        worksheet_names,
+        datasource_name,
+        overview_filters,
+    )
     for spec in sheets:
         dashboard_filters = list(FILTER_FIELDS)
         if competitive and "Heat Map" in spec.name:
@@ -1159,6 +1340,25 @@ def build_workbook_xml(
         )
 
     windows = ET.SubElement(root, "windows", {"source-height": "30"})
+    overview_window = ET.SubElement(
+        windows,
+        "window",
+        {"class": "dashboard", "maximized": "true", "name": overview_name},
+    )
+    overview_viewpoints = ET.SubElement(overview_window, "viewpoints")
+    for worksheet_name in worksheet_names:
+        viewpoint = ET.SubElement(
+            overview_viewpoints,
+            "viewpoint",
+            {"name": worksheet_name},
+        )
+        ET.SubElement(viewpoint, "zoom", {"type": "entire-view"})
+    ET.SubElement(overview_window, "active", {"id": "-1"})
+    ET.SubElement(
+        overview_window,
+        "simple-id",
+        {"uuid": "{" + str(uuid.uuid4()).upper() + "}"},
+    )
     for spec in sheets:
         window = ET.SubElement(
             windows,
@@ -1262,8 +1462,38 @@ def validate_twbx(
         root = ET.fromstring(archive.read(workbook_name))
         if root.tag != "workbook":
             raise ValueError(f"{workbook_name} does not contain a Tableau workbook root")
-        if not root.findall("./dashboards/dashboard"):
+        dashboards = root.findall("./dashboards/dashboard")
+        if not dashboards:
             raise ValueError(f"{workbook_name} contains no dashboards")
+        incompatible = [
+            dashboard.get("name", "<unnamed>")
+            for dashboard in dashboards
+            if "enable-sort-zone-taborder" in dashboard.attrib
+        ]
+        if incompatible:
+            raise ValueError(
+                f"{workbook_name} contains unsupported dashboard attributes: "
+                f"{incompatible}"
+            )
+        overview = next(
+            (
+                dashboard
+                for dashboard in dashboards
+                if dashboard.get("name", "").endswith(" Dashboard")
+            ),
+            None,
+        )
+        if overview is None:
+            raise ValueError(f"{workbook_name} contains no overview dashboard")
+        overview_sheets = {
+            zone.get("name")
+            for zone in overview.findall(".//zone[@name]")
+            if zone.get("type-v2") != "filter"
+        }
+        if len(overview_sheets) < 2:
+            raise ValueError(
+                f"{workbook_name} overview does not contain multiple worksheets"
+            )
 
 
 def write_readme(
@@ -1280,17 +1510,21 @@ Generated from Residential CRMLS records dated January 2024 through
 
 ## Workbooks
 
-- `market_analysis.twbx` — {market_rows:,} listing/sale event rows and six dashboards.
-- `competitive_analysis.twbx` — {competitive_rows:,} closed-sale rows and five dashboards.
+- `market_analysis.twbx` — {market_rows:,} listing/sale event rows, one multi-view
+  overview dashboard, and six detailed dashboards.
+- `competitive_analysis.twbx` — {competitive_rows:,} closed-sale rows, one
+  multi-view overview dashboard, and five detailed dashboards.
 
 Both packages embed their source CSV and a Tableau Hyper extract. Open each
 `.twbx` directly in Tableau Desktop or Tableau Public. If Tableau prompts to
 upgrade the workbook, accept the prompt and save it in the installed version.
 
-All required views expose City, CountyOrParish, PostalCode, and PropertySubType
-filters. Competitive heat maps additionally expose Month. PostalCode is assigned
-Tableau's ZIP Code geographic role, while valid CRMLS latitude/longitude values
-are retained for map marks.
+The overview dashboards display several worksheets simultaneously in tiled
+horizontal/vertical containers with a shared filter rail. All required views
+expose City, CountyOrParish, PostalCode, and PropertySubType filters.
+Competitive views additionally expose Month. PostalCode is assigned Tableau's
+ZIP Code geographic role, while valid CRMLS latitude/longitude values are
+retained for map marks.
 
 ## Rebuild
 

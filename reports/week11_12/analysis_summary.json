@@ -1,0 +1,407 @@
+{
+  "market": "Los Angeles",
+  "analysis_period": "2024-01 through 2026-06",
+  "latest_window": "2025-07 through 2026-06",
+  "prior_window": "2024-07 through 2025-06",
+  "latest_12_months": {
+    "median_close_price": 865000.0,
+    "median_days_on_market": 18.0,
+    "median_price_ratio": 0.9969932345894799,
+    "median_ppsf": 586.5243627340401,
+    "closed_sales": 36286,
+    "new_listings": 60213,
+    "transaction_volume": 35657588515.740005
+  },
+  "prior_12_months": {
+    "median_close_price": 860000.0,
+    "median_days_on_market": 16.0,
+    "median_price_ratio": 1.0,
+    "median_ppsf": 592.2729601293465,
+    "closed_sales": 37000,
+    "new_listings": 64844,
+    "transaction_volume": 36129213109.16
+  },
+  "changes_percent": {
+    "median_close_price": 0.5813953488372103,
+    "median_days_on_market": 12.5,
+    "median_price_ratio": -0.300676541052014,
+    "median_ppsf": -0.970599332113864,
+    "closed_sales": -1.9297297297297344,
+    "new_listings": -7.141755598050703,
+    "transaction_volume": -1.3053829652891702
+  },
+  "changes_percentage_points": {
+    "median_price_ratio": -0.300676541052014
+  },
+  "clean_sales_rows": 91876,
+  "iqr_bounds": {
+    "ClosePrice": [
+      0.0,
+      2449450.0
+    ],
+    "DaysOnMarket": [
+      0.0,
+      105.5
+    ],
+    "PricePerSquareFoot": [
+      28.105813263954246,
+      1242.5342672706988
+    ]
+  },
+  "top_agents": [
+    {
+      "ListAgentFullName": "Cesi Pagano",
+      "volume": 127799850.0,
+      "units": 132
+    },
+    {
+      "ListAgentFullName": "Stephanie Vitacco",
+      "volume": 119512875.0,
+      "units": 111
+    },
+    {
+      "ListAgentFullName": "Tracy B Do",
+      "volume": 98917568.0,
+      "units": 79
+    },
+    {
+      "ListAgentFullName": "Stephanie Younger",
+      "volume": 97352455.0,
+      "units": 70
+    },
+    {
+      "ListAgentFullName": "Neal Weichel",
+      "volume": 86497396.0,
+      "units": 89
+    }
+  ],
+  "top_offices": [
+    {
+      "ListOfficeName": "Compass",
+      "volume": 3148064721.0,
+      "units": 2552
+    },
+    {
+      "ListOfficeName": "Coldwell Banker Realty",
+      "volume": 1571647894.0,
+      "units": 1395
+    },
+    {
+      "ListOfficeName": "Equity Union",
+      "volume": 873629431.47,
+      "units": 814
+    },
+    {
+      "ListOfficeName": "Rodeo Realty",
+      "volume": 627610483.0,
+      "units": 578
+    },
+    {
+      "ListOfficeName": "Keller Williams Realty",
+      "volume": 620599714.0,
+      "units": 598
+    }
+  ],
+  "monthly": [
+    {
+      "Month": "2024-01",
+      "median_close_price": 799999.5,
+      "median_days_on_market": 20.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 559.0558212450142,
+      "closed_sales": 2430,
+      "transaction_volume": 2197996794.68,
+      "new_listings": 4377
+    },
+    {
+      "Month": "2024-02",
+      "median_close_price": 830000.0,
+      "median_days_on_market": 13.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 572.2128378378378,
+      "closed_sales": 2549,
+      "transaction_volume": 2381108162.0,
+      "new_listings": 4299
+    },
+    {
+      "Month": "2024-03",
+      "median_close_price": 830000.0,
+      "median_days_on_market": 12.0,
+      "median_price_ratio": 1.001669449081803,
+      "median_ppsf": 576.1163531940565,
+      "closed_sales": 3098,
+      "transaction_volume": 2902014109.0,
+      "new_listings": 4852
+    },
+    {
+      "Month": "2024-04",
+      "median_close_price": 850000.0,
+      "median_days_on_market": 12.0,
+      "median_price_ratio": 1.006322444678609,
+      "median_ppsf": 590.2651652742463,
+      "closed_sales": 3455,
+      "transaction_volume": 3344026297.76,
+      "new_listings": 5914
+    },
+    {
+      "Month": "2024-05",
+      "median_close_price": 865000.0,
+      "median_days_on_market": 12.0,
+      "median_price_ratio": 1.010091743119266,
+      "median_ppsf": 593.8914027149322,
+      "closed_sales": 3625,
+      "transaction_volume": 3583797022.5,
+      "new_listings": 6230
+    },
+    {
+      "Month": "2024-06",
+      "median_close_price": 864000.0,
+      "median_days_on_market": 13.0,
+      "median_price_ratio": 1.0025706940874035,
+      "median_ppsf": 592.9339477726575,
+      "closed_sales": 3433,
+      "transaction_volume": 3371633555.22,
+      "new_listings": 5883
+    },
+    {
+      "Month": "2024-07",
+      "median_close_price": 870000.0,
+      "median_days_on_market": 13.0,
+      "median_price_ratio": 1.0007555563925263,
+      "median_ppsf": 596.7070149494743,
+      "closed_sales": 3692,
+      "transaction_volume": 3641615360.79,
+      "new_listings": 6079
+    },
+    {
+      "Month": "2024-08",
+      "median_close_price": 862486.5,
+      "median_days_on_market": 15.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 587.9958726536319,
+      "closed_sales": 3624,
+      "transaction_volume": 3541099855.5,
+      "new_listings": 5521
+    },
+    {
+      "Month": "2024-09",
+      "median_close_price": 845000.0,
+      "median_days_on_market": 16.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 586.3045775549442,
+      "closed_sales": 3110,
+      "transaction_volume": 2943966558.0,
+      "new_listings": 5768
+    },
+    {
+      "Month": "2024-10",
+      "median_close_price": 860000.0,
+      "median_days_on_market": 18.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 592.2890443440408,
+      "closed_sales": 3406,
+      "transaction_volume": 3311729933.17,
+      "new_listings": 5577
+    },
+    {
+      "Month": "2024-11",
+      "median_close_price": 849000.0,
+      "median_days_on_market": 18.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 584.6666666666666,
+      "closed_sales": 2929,
+      "transaction_volume": 2806858933.0,
+      "new_listings": 3846
+    },
+    {
+      "Month": "2024-12",
+      "median_close_price": 860000.0,
+      "median_days_on_market": 20.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 583.2222222222222,
+      "closed_sales": 3035,
+      "transaction_volume": 2932577148.25,
+      "new_listings": 2695
+    },
+    {
+      "Month": "2025-01",
+      "median_close_price": 830000.0,
+      "median_days_on_market": 20.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 571.4285714285714,
+      "closed_sales": 2157,
+      "transaction_volume": 2007907378.16,
+      "new_listings": 6087
+    },
+    {
+      "Month": "2025-02",
+      "median_close_price": 850000.0,
+      "median_days_on_market": 17.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 590.7780979827089,
+      "closed_sales": 2337,
+      "transaction_volume": 2268927013.0,
+      "new_listings": 5473
+    },
+    {
+      "Month": "2025-03",
+      "median_close_price": 856000.0,
+      "median_days_on_market": 15.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 602.0,
+      "closed_sales": 2841,
+      "transaction_volume": 2779667178.0,
+      "new_listings": 6208
+    },
+    {
+      "Month": "2025-04",
+      "median_close_price": 865000.0,
+      "median_days_on_market": 15.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 594.5945945945946,
+      "closed_sales": 3342,
+      "transaction_volume": 3301817320.29,
+      "new_listings": 6565
+    },
+    {
+      "Month": "2025-05",
+      "median_close_price": 886000.0,
+      "median_days_on_market": 15.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 604.2483272343097,
+      "closed_sales": 3326,
+      "transaction_volume": 3359224139.0,
+      "new_listings": 6638
+    },
+    {
+      "Month": "2025-06",
+      "median_close_price": 885000.0,
+      "median_days_on_market": 17.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 599.4550408719346,
+      "closed_sales": 3201,
+      "transaction_volume": 3233822292.0,
+      "new_listings": 4387
+    },
+    {
+      "Month": "2025-07",
+      "median_close_price": 875000.0,
+      "median_days_on_market": 18.0,
+      "median_price_ratio": 0.9981401695342949,
+      "median_ppsf": 591.6666666666666,
+      "closed_sales": 3407,
+      "transaction_volume": 3392778273.67,
+      "new_listings": 4452
+    },
+    {
+      "Month": "2025-08",
+      "median_close_price": 860500.0,
+      "median_days_on_market": 20.0,
+      "median_price_ratio": 0.993103448275862,
+      "median_ppsf": 588.0503144654089,
+      "closed_sales": 3167,
+      "transaction_volume": 3100883543.0,
+      "new_listings": 4046
+    },
+    {
+      "Month": "2025-09",
+      "median_close_price": 860000.0,
+      "median_days_on_market": 21.0,
+      "median_price_ratio": 0.9887436629870578,
+      "median_ppsf": 590.1067313716985,
+      "closed_sales": 3290,
+      "transaction_volume": 3215184752.1,
+      "new_listings": 4439
+    },
+    {
+      "Month": "2025-10",
+      "median_close_price": 865000.0,
+      "median_days_on_market": 21.0,
+      "median_price_ratio": 0.989247311827957,
+      "median_ppsf": 583.8632750397456,
+      "closed_sales": 3317,
+      "transaction_volume": 3250397559.0,
+      "new_listings": 4376
+    },
+    {
+      "Month": "2025-11",
+      "median_close_price": 850000.0,
+      "median_days_on_market": 21.0,
+      "median_price_ratio": 0.9887359198998747,
+      "median_ppsf": 581.0234541577826,
+      "closed_sales": 2663,
+      "transaction_volume": 2580871326.0,
+      "new_listings": 3135
+    },
+    {
+      "Month": "2025-12",
+      "median_close_price": 850000.0,
+      "median_days_on_market": 22.0,
+      "median_price_ratio": 0.9886266530202839,
+      "median_ppsf": 578.0975396891918,
+      "closed_sales": 2940,
+      "transaction_volume": 2812582398.5,
+      "new_listings": 2673
+    },
+    {
+      "Month": "2026-01",
+      "median_close_price": 838195.0,
+      "median_days_on_market": 24.0,
+      "median_price_ratio": 0.9906807208620723,
+      "median_ppsf": 571.6556403650975,
+      "closed_sales": 1994,
+      "transaction_volume": 1900456752.5,
+      "new_listings": 6063
+    },
+    {
+      "Month": "2026-02",
+      "median_close_price": 853706.5,
+      "median_days_on_market": 18.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 589.4893586111716,
+      "closed_sales": 2286,
+      "transaction_volume": 2215947418.95,
+      "new_listings": 5311
+    },
+    {
+      "Month": "2026-03",
+      "median_close_price": 861500.0,
+      "median_days_on_market": 15.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 584.1951219512196,
+      "closed_sales": 3081,
+      "transaction_volume": 3027434960.63,
+      "new_listings": 6511
+    },
+    {
+      "Month": "2026-04",
+      "median_close_price": 875000.0,
+      "median_days_on_market": 15.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 589.907604832978,
+      "closed_sales": 3337,
+      "transaction_volume": 3325402254.79,
+      "new_listings": 6689
+    },
+    {
+      "Month": "2026-05",
+      "median_close_price": 875000.0,
+      "median_days_on_market": 16.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 586.7229470452801,
+      "closed_sales": 3283,
+      "transaction_volume": 3284964471.6,
+      "new_listings": 6118
+    },
+    {
+      "Month": "2026-06",
+      "median_close_price": 890000.0,
+      "median_days_on_market": 16.0,
+      "median_price_ratio": 1.0,
+      "median_ppsf": 595.9495351925631,
+      "closed_sales": 3521,
+      "transaction_volume": 3550684805.0,
+      "new_listings": 6400
+    }
+  ]
+}
